@@ -77,7 +77,7 @@ def tokenizer(seq_len):
 def transformer(seq_len, n_blocks, **kwargs):
     inputs = tf.keras.layers.Input(shape=(), dtype=tf.string)
     tok_seq = tokenizer(seq_len)(inputs)
-    outputs = embedding(tok_seq)
+    outputs = embedding(tok_seq, 512 + 3, 512)
     for _ in range(n_blocks):
         outputs = decoder_block(outputs, **kwargs)
     return tf.keras.Model(inputs, outputs)
