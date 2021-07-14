@@ -2,12 +2,15 @@ import tensorflow as tf
 
 # important constants
 
-# keyspace needs to be sized for encoding special, negative tokens as well as tile indices
-VOCAB_SIZE = 512 + 3
-TOK_END_LEVEL = -1
-TOK_END_BLOCK = -2
-TOK_UNKNOWN = -3
+VOCAB_SIZE = 512
+
+TOK_END_LEVEL = 1
+TOK_END_BLOCK = 2
+TOK_UNKNOWN = 3
+RESERVED_TOKENS = [TOK_END_LEVEL, TOK_END_BLOCK, TOK_UNKNOWN]
+
 TOK_PADDING = 37  # SMW "air" tile ID
+
 LEVEL_DELIM = "---"
 
 
@@ -33,12 +36,14 @@ def positional_encoding_matrix(seq_len, depth, min_freq=1e-4):
 def embedding(tok_seq, embed_dim, vocab_size=VOCAB_SIZE):
     seq_len = tok_seq.shape[-1]
     tok_emb = tf.keras.layers.Embedding(
-        input_dim=vocab_size, output_dim=embed_dim, name="lexical_embedding"
+        input_dim=vocab_size + len(RESERVED_TOKENS),
+        output_dim=embed_dim,
+        name="lexical_embedding",
     )(tok_seq)
     return tok_emb + positional_encoding_matrix(seq_len, embed_dim)[None, ...]
 
 
-def decoder_block(x, depth=64, ff_dim=64, attention_heads=2, dropout=0.1):
+def decoder_block(x, depth=64, ffdim=64, attention_heads=2, dropout=0.1):
     seq_len = x.shape[-2]
     attention_mask = causal_attention_mask(seq_len, seq_len)
 
@@ -51,7 +56,7 @@ def decoder_block(x, depth=64, ff_dim=64, attention_heads=2, dropout=0.1):
 
     def ffn(x):
         x = tf.keras.layers.LayerNormalization()(x)
-        x = tf.keras.layers.Dense(ff_dim)(x)
+        x = tf.keras.layers.Dense(ffdim)(x)
         x = tf.keras.layers.Activation(tf.nn.silu)(x)
         x = tf.keras.layers.Dropout(dropout)(x)
         x = tf.keras.layers.LayerNormalization()(x)
@@ -109,7 +114,7 @@ def transformer(seq_len, n_blocks, embed_dim, **kwargs):
     return tf.keras.Model(tok_seq, outputs)
 
 
-def with_stem_tokenizer(model, vocab_size=VOCAB_SIZE):
+def attach_stem_tokenizer(model, vocab_size=VOCAB_SIZE):
     inputs = tf.keras.layers.Input(shape=(), dtype=tf.string)
     seq_len = model.inputs[0].shape[-1]
     tokenize = tokenizer(seq_len, vocab_size)
