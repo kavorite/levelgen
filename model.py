@@ -80,22 +80,21 @@ def padder(seq_len):
 
 def tokenizer(seq_len=None, vocab_size=VOCAB_SIZE):
     @tf.function
+    def tok_id(t):
+        if tf.math.equal(t, ""):
+            return vocab_size + TOK_END_BLOCK
+        elif tf.math.equal(t, LEVEL_DELIM):
+            return vocab_size + TOK_END_LEVEL
+        else:
+            k = tf.strings.to_number(t, out_type=tf.int32)
+            if not (0 <= k and k < vocab_size):
+                return vocab_size + TOK_UNKNOWN
+            else:
+                return k
+
+    @tf.function
     def tokenize(s):
         pad = padder(seq_len) if seq_len is not None else lambda x: x
-
-        @tf.function
-        def tok_id(t):
-            if tf.math.equal(t, ""):
-                return vocab_size + TOK_END_BLOCK
-            elif tf.math.equal(t, LEVEL_DELIM):
-                return vocab_size + TOK_END_LEVEL
-            else:
-                k = tf.strings.to_number(t, out_type=tf.int32)
-                if not (0 <= k and k < vocab_size):
-                    return vocab_size + TOK_UNKNOWN
-                else:
-                    return k
-
         tokens = tf.vectorized_map(tok_id, tf.strings.split(s))
         return pad(tokens)
 

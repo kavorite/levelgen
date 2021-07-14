@@ -46,7 +46,7 @@ with tf.io.gfile.GFile("./levels.txt") as istrm:
     total_levels = content.count(LEVEL_DELIM) + 1
 
 seq_len = 768
-batch_size = 32
+batch_size = 16
 dataset = (
     read_level_ngrams("./levels.txt", seq_len)
     .batch(batch_size)
@@ -54,7 +54,7 @@ dataset = (
     .shuffle(total_levels)
     .repeat()
 )
-model = transformer(n_blocks=8, embed_dim=64, depth=64, seq_len=seq_len)
+model = transformer(n_blocks=16, embed_dim=64, depth=64, seq_len=seq_len)
 # define a synthetic objective: skip-thoughts
 succ_seq = tf.keras.layers.Dense(VOCAB_SIZE, name="succ_seq")(model.layers[-1].output)
 model = tf.keras.Model(inputs=model.inputs, outputs=[succ_seq, *model.outputs])
@@ -79,7 +79,7 @@ model.fit(
     steps_per_epoch=int(
         tf.math.ceil((total_tokens - seq_len) / total_levels / batch_size)
     ),
-    epochs=4,
+    epochs=2,
 )
 
 model.save("./generator.h5", include_optimizer=False)
