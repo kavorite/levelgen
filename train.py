@@ -8,10 +8,15 @@ def read_level_seqs(level_path, seq_len):
 
     def token_windows():
         with tf.io.gfile.GFile(level_path) as istrm:
+            chunk_size = 8192
+            buf = ""
             ctx = []
             while line := istrm.readline():
-                ctx.extend(tokenize(tf.convert_to_tensor(line)).numpy())
-                if len(ctx) > seq_len:
+                buf += line
+                if len(buf) > chunk_size:
+                    ctx.extend(tokenize(tf.convert_to_tensor(line)).numpy())
+                    buf = ""
+                while len(ctx) > seq_len:
                     for i in range(len(ctx) - seq_len - 1):
                         window = ctx[i : i + seq_len + 1]
                         source = window[:-1]
@@ -33,8 +38,8 @@ with tf.io.gfile.GFile("./levels.txt") as istrm:
     total_tokens = len(content.split())
     total_levels = content.count(LEVEL_DELIM) + 1
 
-seq_len = int(tf.math.ceil(total_tokens / total_levels))
-batch_size = 8
+seq_len = 768
+batch_size = 32
 dataset = (
     read_level_seqs("./levels.txt", seq_len)
     .batch(batch_size)
@@ -51,7 +56,14 @@ succ_seq_loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
 model.compile(
     loss=[succ_seq_loss, None],
     optimizer=tf.keras.optimizers.Adam(),
-    # metrics=[tf.metrics.AUC(name="auc", from_logits=True)],
+    metrics=[
+        [
+            tf.metrics.SparseTopKCategoricalAccuracy(k=1, name="acc@1"),
+            tf.metrics.SparseTopKCategoricalAccuracy(k=4, name="acc@4"),
+            tf.metrics.SparseTopKCategoricalAccuracy(k=8, name="acc@8"),
+        ],
+        [],
+    ],
 )
 model.fit(
     dataset,
@@ -60,4 +72,5 @@ model.fit(
     steps_per_epoch=int(
         tf.math.ceil((total_tokens - seq_len) / total_levels / batch_size)
     ),
+    epochs=8,
 )

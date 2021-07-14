@@ -85,20 +85,18 @@ def tokenizer(seq_len=None, vocab_size=VOCAB_SIZE):
 
         @tf.function
         def tok_id(t):
-            if tf.strings.regex_full_match(t, "[0-9]+"):
+            if tf.math.equal(t, ""):
+                return vocab_size + TOK_END_BLOCK
+            elif tf.math.equal(t, LEVEL_DELIM):
+                return vocab_size + TOK_END_LEVEL
+            else:
                 k = tf.strings.to_number(t, out_type=tf.int32)
                 if not (0 <= k and k < vocab_size):
                     return vocab_size + TOK_UNKNOWN
                 else:
                     return k
-            elif tf.math.equal(t, ""):
-                return vocab_size + TOK_END_BLOCK
-            elif tf.math.equal(t, LEVEL_DELIM):
-                return vocab_size + TOK_END_LEVEL
-            else:
-                return vocab_size + TOK_UNKNOWN
 
-        tokens = tf.map_fn(tok_id, tf.strings.split(s), fn_output_signature=tf.int32)
+        tokens = tf.vectorized_map(tok_id, tf.strings.split(s))
         return pad(tokens)
 
     return tokenize
@@ -109,7 +107,6 @@ def transformer(seq_len, n_blocks, embed_dim, **kwargs):
     outputs = embedding(tok_seq, embed_dim)
     for _ in range(n_blocks):
         outputs = decoder_block(outputs, **kwargs)
-    outputs = tf.keras.layers.LayerNormalization()(outputs)
     return tf.keras.Model(tok_seq, outputs)
 
 
