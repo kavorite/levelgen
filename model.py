@@ -87,8 +87,8 @@ def tokenizer(seq_len=None, vocab_size=VOCAB_SIZE):
         def tok_id(t):
             if tf.strings.regex_full_match(t, "[0-9]+"):
                 k = tf.strings.to_number(t, out_type=tf.int32)
-                if k not in range(vocab_size):
-                    return vocab_size - TOK_UNKNOWN
+                if not (0 <= k and k < vocab_size):
+                    return vocab_size + TOK_UNKNOWN
                 else:
                     return k
             elif tf.math.equal(t, ""):
