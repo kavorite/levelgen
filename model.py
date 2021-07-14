@@ -8,6 +8,7 @@ TOK_END_LEVEL = -1
 TOK_END_BLOCK = -2
 TOK_UNKNOWN = -3
 TOK_PADDING = 37  # SMW "air" tile ID
+LEVEL_DELIM = "---"
 
 
 def causal_attention_mask(n_dst, n_src, dtype=tf.bool):
@@ -87,15 +88,15 @@ def tokenizer(seq_len=None, vocab_size=VOCAB_SIZE):
             if tf.strings.regex_full_match(t, "[0-9]+"):
                 k = tf.strings.to_number(t, out_type=tf.int32)
                 if k not in range(vocab_size):
-                    return TOK_UNKNOWN
+                    return vocab_size - TOK_UNKNOWN
                 else:
                     return k
             elif tf.math.equal(t, ""):
-                return TOK_END_BLOCK
-            elif tf.math.equal(t, "---"):
-                return TOK_END_LEVEL
+                return vocab_size + TOK_END_BLOCK
+            elif tf.math.equal(t, LEVEL_DELIM):
+                return vocab_size + TOK_END_LEVEL
             else:
-                return TOK_UNKNOWN
+                return vocab_size + TOK_UNKNOWN
 
         tokens = tf.map_fn(tok_id, tf.strings.split(s), fn_output_signature=tf.int32)
         return pad(tokens)
