@@ -43,8 +43,8 @@ if __name__ == "__main__":
     parser.add_argument("--level-prompt", type=lambda t: levels[int(t)], default=-1)
     parser.add_argument("--output-length", type=int, default=None)
     parser.add_argument("--temperature", type=float, default=2.0)
-    parser.add_argument("--normalize", action="store_false", default=True)
-    parser.add_argument("--stochastic", action="store_false", default=True)
+    parser.add_argument("--normalize", action="store_true", default=False)
+    parser.add_argument("--deterministic", action="store_false", default=True)
     parser.add_argument("--lookahead", type=int, default=1)
     parser.add_argument("--search-width", type=int, default=8)
     args = parser.parse_args()
@@ -77,7 +77,7 @@ if __name__ == "__main__":
         candidates = beam_search(probs=yhats, width=args.search_width)
         branches, scores = zip(*candidates)
         scores = tf.convert_to_tensor(scores)
-        if args.stochastic:
+        if args.deterministic:
             selection = tf.random.categorical(logits=scores[None, :], num_samples=1)
             selection = tf.squeeze(selection)
         else:
