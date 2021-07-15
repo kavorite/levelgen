@@ -58,8 +58,7 @@ if __name__ == "__main__":
     maxlen = min(maxlen, model.output.shape[-2])
 
     stderr.write("generating topology...\n")
-    prompt = levels[args.level_prompt]
-    prompt = tokenizer(seq_len=model.input.shape[-1])(prompt)
+    prompt = tokenizer(seq_len=maxlen, from_back=True)(levels[args.level_prompt])
     prompt = list(prompt.numpy())
 
     if args.normalize:
@@ -77,6 +76,7 @@ if __name__ == "__main__":
         yhats = tf.nn.softmax(yhats / args.temperature, axis=-1)
         candidates = beam_search(probs=yhats, width=args.search_width)
         branches, scores = zip(*candidates)
+        scores = tf.convert_to_tensor(scores)
         if args.stochastic:
             selection = tf.random.categorical(logits=scores[None, :], num_samples=1)
             selection = tf.squeeze(selection)

@@ -5,15 +5,15 @@ import tensorflow as tf
 TOK_END_LEVEL = 0
 TOK_END_BLOCK = 1
 TOK_UNKNOWN = 2
-TOK_PADDING = 3  # SMW "air" tile ID
+TOK_PADDING = 3
 
 LEVEL_DELIM = "---"
 BLOCK_DELIM = "\n"
 RESERVED_TOKENS = {
     TOK_END_LEVEL: LEVEL_DELIM,
     TOK_END_BLOCK: BLOCK_DELIM,
-    TOK_UNKNOWN: None,
-    TOK_PADDING: None,
+    TOK_UNKNOWN: "<unk>",
+    TOK_PADDING: "<pad>",
 }
 
 VOCAB_SIZE = 512 + len(RESERVED_TOKENS)
@@ -47,6 +47,8 @@ def embedding(tok_seq, embed_dim, vocab_size=VOCAB_SIZE):
     )(tok_seq)
     pos_emb = positional_encoding_matrix(seq_len, embed_dim)
     pos_emb = pos_emb[None, ...]
+    tok_emb = tf.keras.layers.LayerNormalization()(tok_emb)
+    pos_emb = tf.keras.layers.LayerNormalization()(pos_emb)
     return tok_emb + pos_emb
 
 
@@ -73,16 +75,17 @@ def decoder_block(
     return ffn(x + att(x))
 
 
-def padder(seq_len):
+def padder(seq_len, from_back=True):
     @tf.function
     def pad(tokens):
         excess = tf.shape(tokens)[-1] - seq_len
         if excess > 0:
             tokens = tokens[:seq_len]
         elif excess < 0:
+            padding = [0, -excess] if from_back else [-excess, 0]
             tokens = tf.pad(
                 tokens,
-                paddings=[[0, -excess]],
+                paddings=[padding],
                 mode="constant",
                 constant_values=TOK_PADDING,
             )
@@ -91,7 +94,7 @@ def padder(seq_len):
     return pad
 
 
-def tokenizer(seq_len=None, vocab_size=VOCAB_SIZE):
+def tokenizer(vocab_size=VOCAB_SIZE, seq_len=None, from_back=True):
     @tf.function
     def tok_id(t):
         k = vocab_size - len(RESERVED_TOKENS)
@@ -105,7 +108,7 @@ def tokenizer(seq_len=None, vocab_size=VOCAB_SIZE):
                 k = vocab_size + TOK_UNKNOWN
         return k
 
-    pad = padder(seq_len) if seq_len is not None else lambda x: x
+    pad = padder(seq_len, from_back) if seq_len is not None else lambda x: x
 
     @tf.function
     def tokenize(s):
