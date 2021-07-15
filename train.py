@@ -2,21 +2,27 @@ import os
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
+import random
+
 import tensorflow as tf
 
 from model import LEVEL_DELIM, generator, tokenizer
 
 
-def read_level_ngrams(level_path, seq_len):
+def read_level_ngrams(level_path, seq_len, max_offset=81):
     tokenize = tokenizer()
 
     def parse_ngrams(chunk):
         ctx = tokenize(tf.convert_to_tensor(chunk).numpy())
         while len(ctx) > seq_len:
-            for i in range(len(ctx) - seq_len - 1):
-                window = ctx[i : i + seq_len + 1]
-                source = window[:-1]
-                target = window[1:]
+            windows = []
+            for i in range(len(ctx) - seq_len):
+                windows.append(ctx[i : i + seq_len])
+            while len(windows) > 2:
+                source = windows.pop(0)
+                target = windows.pop(
+                    random.randint(0, min(len(windows), max_offset) - 1)
+                )
                 yield source, target
             ctx = ctx[seq_len:]
 

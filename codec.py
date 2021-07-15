@@ -1,7 +1,8 @@
 import argparse
 import os
 from collections import Counter
-from sys import stderr, stdout
+from itertools import groupby
+from sys import stderr
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
@@ -11,20 +12,32 @@ from model import BLOCK_DELIM, LEVEL_DELIM, RESERVED_TOKENS, VOCAB_SIZE
 from train import MODEL_CONFIG, generator, tokenizer
 
 
-def beam_search(probs, width):
+def beam_search(probs, width, repetition_penalty=1.0):
     sequences = [[[], 0.0]]
     for row in probs:
         search_tree = []
         for seq, p in sequences:
             for j in range(len(row)):
-                p_branch = tf.math.log(row[j])
-                p_branch = p - p_branch
-                branch = (*seq, j), p
-                search_tree.append(branch)
+                score = p - tf.math.log(row[j])
+                branch = (*seq, j)
+                unique = [g[0] for g in groupby(branch)]
+                repetition_penalty *= float(len(branch) - len(unique))
+                score /= repetition_penalty
+                search_tree.append((branch, score))
         ordered = sorted(search_tree, key=lambda pair: pair[1])[::-1]
         sequences = ordered[:width]
 
     return sequences
+
+
+def detokenize(i):
+    if (k := VOCAB_SIZE - i) in RESERVED_TOKENS:
+        t = RESERVED_TOKENS[k]
+        if t == LEVEL_DELIM:
+            t = f"{BLOCK_DELIM}{t}{BLOCK_DELIM}"
+        return t
+    else:
+        return f"{i:03}"
 
 
 if __name__ == "__main__":
@@ -42,11 +55,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--level-prompt", type=lambda t: levels[int(t)], default=-1)
     parser.add_argument("--output-length", type=int, default=None)
-    parser.add_argument("--temperature", type=float, default=2.0)
+    parser.add_argument("--temperature", type=float, default=4.00)
     parser.add_argument("--normalize", action="store_true", default=False)
     parser.add_argument("--deterministic", action="store_false", default=True)
-    parser.add_argument("--lookahead", type=int, default=1)
-    parser.add_argument("--search-width", type=int, default=8)
+    parser.add_argument("--lookahead", type=int, default=27)
+    parser.add_argument("--search-width", type=int, default=4)
     args = parser.parse_args()
 
     stderr.write("loading model...\n")
@@ -68,33 +81,23 @@ if __name__ == "__main__":
     else:
         tok_hist = tf.ones(VOCAB_SIZE, tf.float32)
 
-    output = []
-    while len(output) < maxlen:
+    generated = 0
+    while generated < maxlen:
         yhats = tf.squeeze(model.predict(tf.expand_dims(prompt, 0)))
         yhats = yhats[: args.lookahead, ...]
-        yhats = yhats / tok_hist[None, ...]
+        yhats /= tok_hist[None, ...]
         yhats = tf.nn.softmax(yhats / args.temperature, axis=-1)
         candidates = beam_search(probs=yhats, width=args.search_width)
         branches, scores = zip(*candidates)
         scores = tf.convert_to_tensor(scores)
-        if args.deterministic:
+        if not args.deterministic:
             selection = tf.random.categorical(logits=scores[None, :], num_samples=1)
             selection = tf.squeeze(selection)
         else:
             selection = tf.argmax(scores)
         selection = branches[selection]
-        output.extend(selection)
-        prompt.extend(selection)
+        generated += len(selection)
+        stderr.write(" ".join(map(detokenize, selection)))
+        stderr.flush()
         if (excess := len(prompt) - model.input.shape[-1]) > 0:
             prompt = prompt[excess:]
-
-    def detokenize(i):
-        if (k := VOCAB_SIZE - i) in RESERVED_TOKENS:
-            t = RESERVED_TOKENS[k]
-            if t == LEVEL_DELIM:
-                t = f"{BLOCK_DELIM}{t}{BLOCK_DELIM}"
-            return t
-        else:
-            return str(i)
-
-    stdout.write(" ".join(map(detokenize, output)))

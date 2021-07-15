@@ -126,6 +126,32 @@ def transformer(seq_len, n_blocks, embed_dim, **kwargs):
     return tf.keras.Model(tok_seq, outputs)
 
 
+def sseq_loss(alpha=0.50, gamma=2.00, from_logits=True):
+    @tf.function
+    def loss(y, p, alpha=alpha, gamma=gamma, from_logits=from_logits):
+        y = tf.one_hot(y, VOCAB_SIZE)
+        alpha_factor = 1.0
+        gamma_factor = 1.0
+        inner_cost = tf.keras.losses.categorical_crossentropy(
+            y, p, from_logits=from_logits
+        )
+        if from_logits:
+            p = tf.nn.softmax(p)
+        p = tf.cast(p, y.dtype)
+        p_t = (y * p) + ((1 - y) * (1 - p))
+
+        if alpha:
+            alpha = tf.cast(alpha, y.dtype)
+            alpha_factor = y * alpha + (1 - y) * (1 - alpha)
+        if gamma:
+            gamma = tf.cast(gamma, y.dtype)
+            gamma_factor = tf.pow(1.0 - p_t, gamma)
+
+        return tf.reduce_sum(inner_cost[..., None] * alpha_factor * gamma_factor)
+
+    return loss
+
+
 def generator(**kwargs):
     model = transformer(**kwargs)
     # define a synthetic objective: skip-thoughts
@@ -134,9 +160,13 @@ def generator(**kwargs):
     model = tf.keras.Model(
         inputs=model.inputs, outputs=dict(sseq=sseq, embedding=embedding)
     )
-    sseq_loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+
     model.compile(
-        loss=dict(sseq=sseq_loss, embedding=None),
+        loss=dict(
+            sseq=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+            # sseq=sseq_loss(alpha=0.50, gamma=2.00),
+            embedding=None,
+        ),
         optimizer=tf.keras.optimizers.Adam(),
         metrics=dict(
             sseq=[
