@@ -12,17 +12,18 @@ from model import BLOCK_DELIM, LEVEL_DELIM, RESERVED_TOKENS, VOCAB_SIZE
 from train import MODEL_CONFIG, generator, tokenizer
 
 
-def beam_search(probs, width, repetition_penalty=1.0):
+def beam_search(probs, width, repetition_penalty=1.0, lookbehind=27):
     sequences = [[[], 0.0]]
     for row in probs:
         search_tree = []
         for seq, p in sequences:
             for j in range(len(row)):
-                score = p - tf.math.log(row[j])
                 branch = (*seq, j)
-                unique = [g[0] for g in groupby(branch)]
-                repetition_penalty *= float(len(branch) - len(unique))
-                score /= repetition_penalty
+                window = branch[-lookbehind:]
+                unique = tf.math.log(float(len(set(window)) + 1))
+                score = (p - tf.math.log(row[j])) / (
+                    repetition_penalty * len(branch) / unique
+                )
                 search_tree.append((branch, score))
         ordered = sorted(search_tree, key=lambda pair: pair[1])[::-1]
         sequences = ordered[:width]
@@ -84,8 +85,8 @@ if __name__ == "__main__":
     generated = 0
     while generated < maxlen:
         yhats = tf.squeeze(model.predict(tf.expand_dims(prompt, 0)))
-        yhats = yhats[: args.lookahead, ...]
-        yhats /= tok_hist[None, ...]
+        yhats = yhats[: args.lookahead, :-2]
+        # yhats /= tok_hist[None, :-1]
         yhats = tf.nn.softmax(yhats / args.temperature, axis=-1)
         candidates = beam_search(probs=yhats, width=args.search_width)
         branches, scores = zip(*candidates)
