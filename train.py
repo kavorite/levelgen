@@ -56,7 +56,7 @@ if __name__ == "__main__":
         total_levels = content.count(LEVEL_DELIM) + 1
 
     seq_len = MODEL_CONFIG["seq_len"]
-    batch_size = 16
+    batch_size = 4
     dataset = (
         read_level_ngrams("./levels.txt", MODEL_CONFIG["seq_len"])
         .batch(batch_size)

@@ -52,27 +52,58 @@ def embedding(tok_seq, embed_dim, vocab_size=VOCAB_SIZE):
     return tok_emb + pos_emb
 
 
-def decoder_block(
-    x, depth=64, ffdim=64, ffact=tf.nn.silu, attention_heads=2, dropout=0.1
-):
-    seq_len = x.shape[-2]
+def multi_head_attention(heads, depth, dropout=0.1, causal=True):
+    def att(p, q=None):
+        q = q if q is not None else p
+        seq_len = q.shape[-2]
+        mask = causal_attention_mask(seq_len, seq_len) if causal else None
+        p = tf.keras.layers.LayerNormalization()(p)
+        p = tf.keras.layers.MultiHeadAttention(heads, depth)(p, q, attention_mask=mask)
+        return tf.keras.layers.Dropout(dropout)(p)
 
-    def att(x):
-        x = tf.keras.layers.LayerNormalization()(x)
-        x = tf.keras.layers.MultiHeadAttention(attention_heads, x.shape[-1])(
-            x, x, attention_mask=causal_attention_mask(seq_len, seq_len)
-        )
-        return tf.keras.layers.Dropout(dropout)(x)
+    return att
 
+
+def pointwise_ffn(output_dim, hidden_dim, hidden_act=tf.nn.silu, dropout=0.1):
     def ffn(x):
         x = tf.keras.layers.LayerNormalization()(x)
-        x = tf.keras.layers.Dense(ffdim)(x)
-        x = tf.keras.layers.Activation(ffact)(x)
+        x = tf.keras.layers.Dense(hidden_dim)(x)
+        x = tf.keras.layers.Activation(hidden_act)(x)
         x = tf.keras.layers.Dropout(dropout)(x)
         x = tf.keras.layers.LayerNormalization()(x)
-        return tf.keras.layers.Dense(depth)(x)
+        return tf.keras.layers.Dense(output_dim)(x)
 
-    return ffn(x + att(x))
+    return ffn
+
+
+def encoder_block(depth=64, ffdim=32, ffact=tf.nn.silu, attention_heads=2, dropout=0.1):
+    att = multi_head_attention(attention_heads, depth, dropout=dropout, causal=False)
+    ffn = pointwise_ffn(depth, ffdim, ffact, dropout)
+
+    def encoder(x):
+        return ffn(x + att(x))
+
+    return encoder
+
+
+def decoder_block(depth=64, ffdim=64, ffact=tf.nn.silu, attention_heads=2, dropout=0.1):
+    enc = encoder_block(
+        depth=depth,
+        ffdim=ffdim,
+        ffact=ffact,
+        attention_heads=attention_heads,
+        dropout=dropout,
+    )
+    att = multi_head_attention(heads=attention_heads, depth=depth, dropout=dropout)
+    ffn = pointwise_ffn(
+        output_dim=depth, hidden_dim=ffdim, hidden_act=ffact, dropout=dropout
+    )
+
+    def decoder(x):
+        q = enc(x)
+        return ffn(att(x + att(x) + att(x, q)))
+
+    return decoder
 
 
 def padder(seq_len, from_back=True):
@@ -82,7 +113,7 @@ def padder(seq_len, from_back=True):
         if excess > 0:
             tokens = tokens[:seq_len]
         elif excess < 0:
-            padding = [0, -excess] if from_back else [-excess, 0]
+            padding = 0, -excess if from_back else -excess, 0
             tokens = tf.pad(
                 tokens,
                 paddings=[padding],
@@ -122,7 +153,7 @@ def transformer(seq_len, n_blocks, embed_dim, **kwargs):
     tok_seq = tf.keras.layers.Input(shape=[seq_len], dtype=tf.int32)
     outputs = embedding(tok_seq, embed_dim)
     for _ in range(n_blocks):
-        outputs = decoder_block(outputs, **kwargs)
+        outputs = encoder_block(**kwargs)(outputs)
     return tf.keras.Model(tok_seq, outputs)
 
 
